@@ -93,7 +93,7 @@ module.exports = (client) => {
 
       const embed = new EmbedBuilder()
         .setColor(0xffffff)
-        .setFooter({ text: "Kodded • Reset Monitor" })
+        .setFooter({ text: "Kodded • Reset Monitor v1.1" })
         .setTimestamp();
 
       if (sub === "status") {
