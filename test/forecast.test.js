@@ -148,7 +148,7 @@ test('idempotent upgrade from original SQLite schema preserves configuration, re
   const again = openDatabase(f.path, f.options); assert.equal(again.pending().length, 1); again.close();
 });
 function interaction(sub, manage) {
-  return { replies: [], commandName: 'codex', guildId: A, isChatInputCommand: () => true, inGuild: () => true,
+  return { replies: [], commandName: 'kodded', guildId: A, isChatInputCommand: () => true, inGuild: () => true,
     options: { getSubcommand: () => sub, getSubcommandGroup: () => 'forecast-alert' },
     memberPermissions: { has: bit => manage && bit === PermissionFlagsBits.ManageGuild },
     deferReply: async function(options) { assert.equal(options.flags, MessageFlags.Ephemeral); this.deferred = true; },
@@ -179,7 +179,7 @@ test('configurable defaults validate strictly and change trigger thresholds', t 
 test('one shared poll processes both notification types and a confirmed reset silently rebaselines forecasts', async t => {
   const f = fixture(t); f.observe(); f.enable(); const sent = []; let calls = 0;
   const client = discord(() => null, sent); let data = f.data(45, 60);
-  const monitor = createMonitor(client, f.store, { get: async endpoint => { calls++; assert.equal(endpoint, 'forecast'); return data; } });
+  const monitor = createMonitor(client, f.store, { get: async endpoint => { if (endpoint === 'feed') return { stale: false, tweets: [], fetched_at: new Date(f.now()).toISOString() }; calls++; assert.equal(endpoint, 'forecast'); return data; } });
   f.tick(); data = f.data(45, 60); await monitor();
   assert.equal(calls, 1); assert.deepEqual(sent, [A]); assert.equal(f.store.forecastState(A).last_notified_at, f.now());
   const lastForecastSend = f.store.forecastState(A).last_notified_at;

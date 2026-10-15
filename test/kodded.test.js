@@ -88,7 +88,7 @@ function fakeClient() {
 }
 function interaction(sub, permission, channel) {
   const replies = [];
-  return { replies, isChatInputCommand: () => true, commandName: 'codex', guildId: A, inGuild: () => true,
+  return { replies, isChatInputCommand: () => true, commandName: 'kodded', guildId: A, inGuild: () => true,
     memberPermissions: { has: bit => permission && bit === PermissionFlagsBits.ManageGuild },
     options: { getSubcommand: () => sub, getSubcommandGroup: () => ['enable', 'disable'].includes(sub) ? 'notify' : null, getChannel: () => channel },
     deferReply: async function(payload) { assert.equal(payload.flags, MessageFlags.Ephemeral); this.deferred = true; },
@@ -113,10 +113,10 @@ test('commands enforce Manage Server without restricting informational commands;
 });
 test('global registration preserves unrelated commands and removes only old guild codex', async t => {
   const { store } = fixture(t); const client = fakeClient(); const deleted = []; let global;
-  client.application = { commands: { create: async json => { global = json; } } };
+  client.application = { commands: { create: async json => { global = json; }, fetch: async () => new Map(), delete: async () => {} } };
   client.guilds = { cache: new Map([[A, { id: A, commands: { fetch: async () => new Map([['1', { id: '1', name: 'codex', type: 1 }], ['2', { id: '2', name: 'other', type: 1 }]]), delete: async id => deleted.push(id) } }]]) };
   installCommands(client, store, {}); await client.handlers[Events.ClientReady]();
-  assert.equal(global.name, 'codex'); assert.equal(global.default_member_permissions, undefined);
+  assert.equal(global.name, 'kodded'); assert.equal(global.default_member_permissions, undefined);
   assert.deepEqual(deleted, ['1']);
 });
 test('API caches, preserves User-Agent, coalesces calls and honors rate limits', async () => {
@@ -135,7 +135,7 @@ test('monitor rejects invalid reset data and prevents overlapping poll deliverie
   const { store } = fixture(t); store.observe(R1);
   let release, calls = 0;
   const wait = new Promise(resolve => { release = resolve; });
-  const check = createMonitor({}, store, { get: async () => { calls++; await wait; return { last_reset_at: 'invalid' }; } });
+  const check = createMonitor({}, store, { get: async endpoint => { if (endpoint === 'feed') return { stale: false, tweets: [], fetched_at: new Date().toISOString() }; calls++; await wait; return { last_reset_at: 'invalid' }; } });
   const first = check(); await check(); assert.equal(calls, 1); release(); await first;
   assert.equal(store.latest(), R1); assert.equal(store.pending().length, 0);
 });
@@ -160,7 +160,7 @@ test('forecast/history retain data source and ephemeral responses for ordinary m
 test('graceful monitor shutdown drains an active poll and prevents further work', async t => {
   const { store } = fixture(t); let release; let calls = 0;
   const wait = new Promise(resolve => { release = resolve; });
-  const check = createMonitor({}, store, { get: async () => { calls++; await wait; return { last_reset_at: R1 }; } });
+  const check = createMonitor({}, store, { get: async endpoint => { if (endpoint === 'feed') return { stale: false, tweets: [], fetched_at: new Date().toISOString() }; calls++; await wait; return { last_reset_at: R1 }; } });
   const cycle = check(); let stopped = false;
   const stop = check.stop().then(() => { stopped = true; });
   await Promise.resolve(); assert.equal(stopped, false);

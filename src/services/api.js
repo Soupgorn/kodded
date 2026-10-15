@@ -4,7 +4,7 @@ class CodexApi {
     this.cache = new Map(); this.inflight = new Map(); this.retryAfter = 0;
   }
   async get(endpoint, { fresh = false } = {}) {
-    if (!['forecast', 'timeline'].includes(endpoint)) throw new Error('Invalid API endpoint');
+    if (!['forecast', 'timeline', 'feed'].includes(endpoint)) throw new Error('Invalid API endpoint');
     if (this.now() < this.retryAfter) throw new Error('Codex API rate limited; retry later.');
     const cached = this.cache.get(endpoint);
     if (!fresh && cached && this.now() - cached.time < 90_000) return cached.data;

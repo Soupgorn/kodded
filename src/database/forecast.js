@@ -38,7 +38,7 @@ function attachForecast(store, { env, now }) {
     },
     enableForecast: db.transaction((guild, enabled) => {
       const config = store.getGuild(guild);
-      if (!config) throw new Error('Configure a channel with /codex setup first.');
+      if (!config) throw new Error('Configure a channel with /kodded setup first.');
       if (Boolean(config.forecast_alerts_enabled) === enabled) return;
       const current = observation();
       if (enabled && (!current || current.reset_at !== store.latest() || now() - Date.parse(current.updated_at) > policy.maxAgeMs)) {
