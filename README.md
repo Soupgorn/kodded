@@ -6,6 +6,7 @@ Kodded monitors global Codex goodwill resets using [codex-reset.com](https://cod
 
 - Global `/codex` commands; all command responses are ephemeral.
 - Independent notification channels and enable/disable settings per server.
+- Optional forecast probability increase alerts, separate from confirmed reset notifications.
 - Shared API cache (90 seconds), 15-second request timeout, and shared `Retry-After` handling with a two-minute minimum backoff.
 - SQLite persistence with transactions, WAL mode, and a durable per-server delivery queue.
 - Embed notifications without mentions; permission/channel failures are isolated and retried.
@@ -35,10 +36,34 @@ Global commands can take time to appear or refresh in Discord clients. Kodded up
 | `/codex history` | Everyone | Latest three announced reset events |
 | `/codex config` | Everyone | Channel, notification state, last successful reset delivery |
 | `/codex setup channel:#channel` | Manage Server / Administrator | Validate and save a text or announcement channel |
-| `/codex notify enable` | Manage Server / Administrator | Enable future notifications; no disabled-period replay |
-| `/codex notify disable` | Manage Server / Administrator | Disable automatic notifications |
+| `/codex notify enable` | Manage Server / Administrator | Enable confirmed reset notifications; no disabled-period replay |
+| `/codex notify disable` | Manage Server / Administrator | Disable confirmed reset notifications |
+| `/codex forecast-alert enable` | Manage Server / Administrator | Enable future forecast increase alerts |
+| `/codex forecast-alert disable` | Manage Server / Administrator | Disable forecast alerts only |
+| `/codex forecast-alert config` | Everyone | Forecast preference, thresholds, last delivery, and cooldown |
 
 All responses, including errors, are ephemeral. Permission checks apply to changing settings, not to the entire command group. Server-level Discord application command restrictions can additionally limit access. Threads, forums, DMs, foreign-server channels, and channels lacking the bot’s three required permissions are rejected. Enabling requires an existing channel configuration.
+
+## Automatic forecast alerts
+
+Confirmed reset alerts report an advance in `last_reset_at` and use green embeds. Forecast alerts report estimated probability movements using amber embeds and always say **“This is a forecast, not a confirmed reset.”** They do not create confirmed reset events or acknowledge reset deliveries.
+
+Forecast alerts default to **disabled**, including for existing guilds during upgrade. After `/codex setup`, a manager can opt in with `/codex forecast-alert enable`; use `/codex forecast-alert config` to check settings. They use the same channel, but `/codex notify` and `/codex forecast-alert` control independent preferences. All responses stay ephemeral. Enabling requires a valid channel and a fresh API snapshot and silently establishes the current probability baseline; repeating enable does not reset baselines or cooldowns.
+
+An alert qualifies when either horizon meets both of its conditions:
+
+| Horizon | Current probability | Increase from baseline |
+| --- | --- | --- |
+| Next 24 hours | At least 40% | At least 10 percentage points |
+| Next 48 hours | At least 60% | At least 15 percentage points |
+
+Each guild persists its own reference for both horizons. Small upward steps accumulate against the reference. Enqueuing a qualifying movement advances both references to the current probabilities, preventing repeated alerts for that movement. A decrease of at least the configured increase threshold below a horizon's reference lowers that reference and allows subsequent recovery alerts. Smaller oscillations do not re-arm it.
+
+A **six-hour per-guild cooldown starts only after a successful Discord send**. Failed guilds retry independently; successful guilds are not repeatedly notified. During cooldown, upward movements accumulate against the reference; a new, changed, qualifying snapshot after expiry is required to alert. Merely expiring a timer does not generate an alert. Disabling drops that guild's pending forecast and re-enabling silently baselines again; it preserves the last successful send and cooldown. A confirmed reset cancels all pending forecasts and silently rebaselines on the next valid snapshot, preserving cooldown history.
+
+Only numeric probabilities in `[0,100]`, valid reset/update timestamps, and observations no older than ten minutes (with one minute of forward clock tolerance) are accepted. Older/equal `updated_at` snapshots and unchanged probability values cannot generate alerts. Invalid probabilities do not prevent confirmed reset processing. Confidence is restricted to low/medium/high; unknown values display as Unknown. The current optional `official_signal` has no verified non-null schema, so Kodded conservatively omits it rather than labeling unsupported upstream content as official confirmation.
+
+The same two-minute monitor and shared cached API client handle both notification types. One pending forecast per guild prevents a backlog of probability alerts. Retries survive restarts and upstream outages; they retain their original observation timestamp. A later valid observation cancels a pending forecast if the qualifying movement has reversed. Otherwise a failed delivery can arrive late when channel access returns. Disable forecast alerts to discard pending work. Discord/SQLite acknowledgement has the same crash/network ambiguity described below; exactly-once delivery is not guaranteed.
 
 ## Environment
 
@@ -52,6 +77,11 @@ Copy `.env.example` to `.env` and supply real values locally; never commit `.env
 | `DISCORD_GUILD_ID` | Legacy only | Existing server for one-time import |
 | `DISCORD_CHANNEL_ID` | Legacy only | Existing channel for one-time import |
 | `SEND_STARTUP_TEST` | No | Optional startup message; defaults to false |
+| `FORECAST_MIN_24H` | No | Default 40; probability floor (0–100) |
+| `FORECAST_INCREASE_24H` | No | Default 10; minimum increase in percentage points (1–100) |
+| `FORECAST_MIN_48H` | No | Default 60; probability floor (0–100) |
+| `FORECAST_INCREASE_48H` | No | Default 15; minimum increase in percentage points (1–100) |
+| `FORECAST_COOLDOWN_HOURS` | No | Default 6; per-guild cooldown after success (1–168 hours) |
 
 `SEND_STARTUP_TEST=true` retains the optional startup test message, sent to enabled configured guilds. Leave it false (the default) to avoid messages on every restart.
 
@@ -59,12 +89,17 @@ Copy `.env.example` to `.env` and supply real values locally; never commit `.env
 
 The database initializes automatically on startup using `better-sqlite3`:
 
-- `guild_config`: `guild_id` primary key, `channel_id`, `notifications_enabled`, `last_notified_reset`, `baseline_reset`, `created_at`, `updated_at`.
+- `guild_config`: `guild_id` primary key, `channel_id`, `notifications_enabled`, `last_notified_reset`, `baseline_reset`, `forecast_alerts_enabled` (default 0), `created_at`, `updated_at`.
 - `monitor_state`: persistent key/value state, including `last_reset_at` and `legacy_migrated`.
 - `reset_events`: observed reset timestamps.
-- `deliveries`: pending `(guild_id, reset_at)` pairs, keyed uniquely and linked to guilds/events.
+- `deliveries`: pending confirmed `(guild_id, reset_at)` pairs, keyed uniquely and linked to guilds/events.
+- `forecast_observation`: singleton latest validated forecast snapshot (probabilities, confidence, reset epoch, update timestamp).
+- `forecast_guild_state`: each guild's horizon baselines/reset epoch, last successful forecast send time and snapshot.
+- `forecast_deliveries`: one pending forecast snapshot and reference probabilities per guild, independent of reset deliveries.
 
-The global reset observation and queue creation are one transaction. On first launch without state, the current reset is recorded silently. Each successful Discord send updates only that guild’s successful-delivery timestamp and removes its pending item in a transaction. Repeated timestamps and older API responses cannot enqueue duplicate events. Failed deliveries persist across restarts and retry every polling cycle even when the upstream API fails. A later reset does not erase an earlier pending delivery. Disabled guilds do not receive notifications; re-enabling drops pending old deliveries and starts at the current baseline. Explicit bot removal deletes that guild’s configuration; temporary guild unavailability preserves it.
+Startup transactionally adds the forecast flag only if absent and creates the new tables idempotently. Existing channels, reset queues, monitor state and legacy migration markers are preserved. No administrator must enable forecasts during deployment; opt-in is a separate deliberate action. No new dependency, service, volume, or production environment variable is required. Optional threshold variables apply to all guilds; each guild still owns its baselines and cooldown. Changing defaults does not replay unchanged snapshots or clear persisted cooldowns.
+
+The global reset observation and queue creation are one transaction. On first launch without state, the current reset is recorded silently. Each successful Discord send updates only that guild’s successful-delivery timestamp and removes its pending item in a transaction. Repeated timestamps and older API responses cannot enqueue duplicate events. Failed deliveries persist across restarts and retry every polling cycle even when the upstream API fails. A later reset does not erase an earlier pending confirmed delivery. Guilds with confirmed notifications disabled do not receive reset alerts; re-enabling drops pending old reset deliveries and starts at the current reset baseline. Explicit bot removal deletes that guild’s configuration; temporary guild unavailability preserves it.
 
 Discord message sends and SQLite commits cannot be atomic. A process crash after Discord accepts a message but before SQLite records it, or an ambiguous network failure, can cause a duplicate on retry. This is **not an exactly-once delivery guarantee**. Run one Kodded process against this database; multiple replicas are unsupported. Queued failures continue retrying until fixed or disabled; old pending resets may arrive after a channel is repaired or changed. Event records are small but currently retained without automatic pruning.
 
@@ -117,6 +152,7 @@ Tests use temporary SQLite databases and mocked Discord/API calls; real credenti
 - **No commands:** verify both install scopes, wait for global propagation, refresh the client, and inspect `command_registration_failed` / `guild_command_cleanup_failed` logs.
 - **No notifications:** run `/codex config`, confirm notifications are enabled, and check channel permission overrides. A baseline alone does not trigger a notification.
 - **Delivery errors:** `notification_failed` includes the guild ID and error. Fix removed channels with setup; restore View Channel, Send Messages, and Embed Links. Other guilds continue receiving alerts.
+- **No forecast alerts:** check `/codex forecast-alert config`, opt in explicitly, and confirm that a fresh changed observation meets both conditions for one horizon. Initial levels, small changes, and movements during cooldown are silent. `forecast_check_failed` and `forecast_notification_failed` identify invalid input and delivery failures.
 - **API errors:** `reset_check_failed` logs timeouts, invalid timestamps, or rate limiting. The monitor stays running and retries after backoff; existing pending messages still retry.
 - **Database readonly:** verify the data mount, host ownership, free disk space, and that `DATABASE_PATH` points inside the persistent mount. SQLite needs directory write access for WAL/SHM files.
 - **Legacy migration failure:** preserve the original file, restore valid JSON with a valid `lastResetAt`, and restart. Do not delete valid state to bypass a failure.

@@ -39,7 +39,11 @@ function installCommands(client, store, api) {
     .addSubcommand(sub => sub.setName('config').setDescription('View this server notification configuration'))
     .addSubcommandGroup(group => group.setName('notify').setDescription('Manage notifications')
       .addSubcommand(sub => sub.setName('enable').setDescription('Enable notifications'))
-      .addSubcommand(sub => sub.setName('disable').setDescription('Disable notifications')));
+      .addSubcommand(sub => sub.setName('disable').setDescription('Disable notifications')))
+    .addSubcommandGroup(group => group.setName('forecast-alert').setDescription('Manage forecast probability alerts')
+      .addSubcommand(sub => sub.setName('enable').setDescription('Enable forecast alerts'))
+      .addSubcommand(sub => sub.setName('disable').setDescription('Disable forecast alerts'))
+      .addSubcommand(sub => sub.setName('config').setDescription('View forecast alert settings')));
 
   let globalRegistered = false;
   async function cleanGuild(guild) {
@@ -75,6 +79,38 @@ function installCommands(client, store, api) {
 
       if (!interaction.inGuild()) throw new Error('Use /codex in a Discord server.');
       const group = interaction.options.getSubcommandGroup(false);
+      if (group === 'forecast-alert') {
+        const config = store.getGuild(interaction.guildId);
+        const policy = store.forecastPolicy;
+        if (sub === 'config') {
+          const state = store.forecastState(interaction.guildId);
+          const until = state?.last_notified_at == null ? null : state.last_notified_at + policy.cooldownMs;
+          await interaction.editReply({ content:
+            `Forecast alerts: ${config?.forecast_alerts_enabled ? 'Enabled' : 'Disabled'}\n` +
+            `Channel: ${config ? `<#${config.channel_id}>` : 'Not configured; run /codex setup first.'}\n` +
+            `24h: at least ${policy.min24}% and +${policy.increase24} percentage points\n` +
+            `48h: at least ${policy.min48}% and +${policy.increase48} percentage points\n` +
+            `Cooldown: ${policy.cooldownMs / 3600000} hours per server after a successful alert\n` +
+            `Last successful alert: ${state?.last_notified_at == null ? 'None recorded' : formatTime(new Date(state.last_notified_at).toISOString())}\n` +
+            `Next eligible time: ${until == null ? 'No previous cooldown' : formatTime(new Date(until).toISOString())}\n` +
+            'This is a forecast, not a confirmed reset.', allowedMentions: { parse: [] } });
+          return;
+        }
+        if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+          throw new Error('You need Manage Server permission to change notification settings.');
+        }
+        if (!config) throw new Error('Configure a channel with /codex setup first.');
+        if (sub === 'enable' && !config.forecast_alerts_enabled) {
+          const guild = interaction.guild ?? await client.guilds.fetch(interaction.guildId);
+          await validateChannel(guild, await guild.channels.fetch(config.channel_id));
+          const data = await api.get('forecast', { fresh: true });
+          store.observe(data.last_reset_at);
+          store.observeForecast(data);
+        }
+        store.enableForecast(interaction.guildId, sub === 'enable');
+        await interaction.editReply({ content: `Forecast alerts ${sub === 'enable' ? 'enabled for future probability increases' : 'disabled'}. Confirmed reset settings are independent.`, allowedMentions: { parse: [] } });
+        return;
+      }
       if (sub === 'setup' || group === 'notify') {
         if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
           throw new Error('You need Manage Server permission to change notification settings.');
@@ -100,7 +136,7 @@ function installCommands(client, store, api) {
       if (sub === 'config') {
         const config = store.getGuild(interaction.guildId);
         await interaction.editReply({ content: config
-          ? `Channel: <#${config.channel_id}>\nNotifications: ${config.notifications_enabled ? 'Enabled' : 'Disabled'}\nLast successfully notified reset: ${config.last_notified_reset ? formatTime(config.last_notified_reset) : 'None recorded'}`
+          ? `Channel: <#${config.channel_id}>\nConfirmed reset notifications: ${config.notifications_enabled ? 'Enabled' : 'Disabled'}\nForecast alerts: ${config.forecast_alerts_enabled ? 'Enabled' : 'Disabled'}\nLast successfully notified reset: ${config.last_notified_reset ? formatTime(config.last_notified_reset) : 'None recorded'}`
           : 'No notification channel configured. Ask a server manager to run /codex setup.', allowedMentions: { parse: [] } });
         return;
       }

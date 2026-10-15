@@ -33,6 +33,32 @@ async function deliverPending(client, store) {
     } catch (error) { log('notification_failed', { guild_id, code: error.code, message: error.message }); }
   }
 }
+function forecastEmbed(delivery) {
+  const movement = (baseline, current) => `${baseline}% → ${current}% (${current - baseline >= 0 ? '+' : ''}${Number((current - baseline).toFixed(2))} pp)`;
+  return new EmbedBuilder().setColor(0xf5b942)
+    .setTitle('Codex Reset Probability Rising!')
+    .setDescription('The estimated probability of a global Codex reset has increased.\n\nThis is a forecast, not a confirmed reset.')
+    .addFields(
+      { name: 'Next 24 Hours', value: movement(delivery.baseline_24h, delivery.p24), inline: true },
+      { name: 'Next 48 Hours', value: movement(delivery.baseline_48h, delivery.p48), inline: true },
+      { name: 'Confidence', value: delivery.confidence.charAt(0).toUpperCase() + delivery.confidence.slice(1) },
+      { name: 'Updated', value: `<t:${Math.floor(Date.parse(delivery.snapshot_at) / 1000)}:F>` },
+      { name: 'Data Source', value: '[codex-reset.com](https://codex-reset.com/)' })
+    .setFooter({ text: 'Kodded • Forecast Alert' });
+}
+async function deliverForecastPending(client, store) {
+  for (const delivery of store.pendingForecast()) {
+    if (!store.forecastDeliveryCurrent(delivery)) continue;
+    try {
+      const guild = await client.guilds.fetch(delivery.guild_id);
+      const channel = await validateChannel(guild, await guild.channels.fetch(delivery.channel_id));
+      if (!store.forecastDeliveryCurrent(delivery)) continue;
+      await channel.send({ embeds: [forecastEmbed(delivery)], allowedMentions: { parse: [] } });
+      store.deliveredForecast(delivery);
+      log('forecast_notification_sent', { guild_id: delivery.guild_id, snapshot_at: delivery.snapshot_at });
+    } catch (error) { log('forecast_notification_failed', { guild_id: delivery.guild_id, code: error.code, message: error.message }); }
+  }
+}
 async function sendStartupTest(client, store) {
   for (const config of store.db.prepare('SELECT * FROM guild_config WHERE notifications_enabled=1').all()) {
     try {
@@ -42,4 +68,4 @@ async function sendStartupTest(client, store) {
     } catch (error) { log('startup_test_failed', { guild_id: config.guild_id, message: error.message }); }
   }
 }
-module.exports = { validateChannel, deliverPending, sendStartupTest };
+module.exports = { validateChannel, deliverPending, deliverForecastPending, forecastEmbed, sendStartupTest };
