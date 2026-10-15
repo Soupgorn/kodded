@@ -87,7 +87,9 @@ module.exports = (client) => {
     if (interaction.commandName !== "codex") return;
 
     try {
-      await interaction.deferReply();
+      await interaction.deferReply({
+        flags: MessageFlags.Ephemeral
+      });
 
       const sub = interaction.options.getSubcommand();
 
