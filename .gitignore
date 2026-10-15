@@ -1,0 +1,19 @@
+
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Dependencies
+node_modules/
+
+# Persistent Data
+data/
+*.sqlite
+*.sqlite3
+*.db
+
+# Logs
+*.log
