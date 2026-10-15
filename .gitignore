@@ -17,3 +17,6 @@ data/
 
 # Logs
 *.log
+
+*.sqlite-wal
+*.sqlite-shm
