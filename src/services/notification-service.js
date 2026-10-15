@@ -59,6 +59,34 @@ async function deliverForecastPending(client, store) {
     } catch (error) { log('forecast_notification_failed', { guild_id: delivery.guild_id, code: error.code, message: error.message }); }
   }
 }
+function tiboEmbed(post) {
+  return new EmbedBuilder().setColor(0xffffff).setTitle('New Tibo Post')
+    .addFields(
+      { name: 'Author', value: 'Tibo (@thsottiaux)' },
+      { name: 'Post content', value: post.text },
+      { name: 'Published', value: `<t:${Math.floor(Date.parse(post.published_at) / 1000)}:F>` },
+      { name: 'Original post', value: `[View on X](${post.url})` },
+      { name: 'Data', value: 'https://codex-reset.com/' })
+    .setFooter({ text: 'Kodded • Tibo Post Monitor' });
+}
+async function deliverTiboPending(client, store) {
+  const failedGuilds = new Set();
+  for (const delivery of store.pendingTibo()) {
+    if (failedGuilds.has(delivery.guild_id) || !store.tiboDeliveryCurrent(delivery)) continue;
+    try {
+      const guild = await client.guilds.fetch(delivery.guild_id);
+      const channel = await validateChannel(guild, await guild.channels.fetch(delivery.channel_id));
+      if (!store.tiboDeliveryCurrent(delivery)) continue;
+      await channel.send({ embeds: [tiboEmbed(delivery)], allowedMentions: { parse: [] } });
+      store.deliveredTibo(delivery);
+      log('tibo_notification_sent', { guild_id: delivery.guild_id, post_id: delivery.post_id });
+    } catch (error) {
+      // Preserve chronological delivery for this guild; continue serving other guilds.
+      failedGuilds.add(delivery.guild_id);
+      log('tibo_notification_failed', { guild_id: delivery.guild_id, post_id: delivery.post_id, code: error.code, message: error.message });
+    }
+  }
+}
 async function sendStartupTest(client, store) {
   for (const config of store.db.prepare('SELECT * FROM guild_config WHERE notifications_enabled=1').all()) {
     try {
@@ -68,4 +96,4 @@ async function sendStartupTest(client, store) {
     } catch (error) { log('startup_test_failed', { guild_id: config.guild_id, message: error.message }); }
   }
 }
-module.exports = { validateChannel, deliverPending, deliverForecastPending, forecastEmbed, sendStartupTest };
+module.exports = { validateChannel, deliverPending, deliverForecastPending, forecastEmbed, deliverTiboPending, tiboEmbed, sendStartupTest };

@@ -3,6 +3,7 @@ const { mkdirSync, readFileSync } = require('node:fs');
 const { dirname } = require('node:path');
 const log = require('../log');
 const { migrateForecast, attachForecast } = require('./forecast');
+const { migrateTibo, attachTibo } = require('./tibo');
 function timestamp(value) {
   if (typeof value !== 'string' || !Number.isFinite(Date.parse(value))) throw new Error('Invalid reset timestamp');
   return new Date(value).toISOString();
@@ -26,7 +27,7 @@ function openDatabase(path, { legacyPath, env = {}, now = Date.now } = {}) {
       reset_at TEXT NOT NULL REFERENCES reset_events(reset_at),
       PRIMARY KEY(guild_id, reset_at));`);
   db.pragma('foreign_keys = ON');
-  try { migrateForecast(db); } catch (error) { db.close(); throw error; }
+  try { migrateForecast(db); migrateTibo(db); } catch (error) { db.close(); throw error; }
   const state = key => db.prepare('SELECT value FROM monitor_state WHERE key=?').get(key)?.value ?? null;
   const setState = (key, value) => db.prepare('INSERT INTO monitor_state VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value').run(key, value);
   const getGuild = id => db.prepare('SELECT * FROM guild_config WHERE guild_id=?').get(id);
@@ -43,7 +44,7 @@ function openDatabase(path, { legacyPath, env = {}, now = Date.now } = {}) {
     }),
     enable: db.transaction((guild, enabled) => {
       const config = getGuild(guild);
-      if (!config) throw new Error('Configure a channel with /codex setup first.');
+      if (!config) throw new Error('Configure a channel with /kodded setup first.');
       if (Boolean(config.notifications_enabled) === enabled) return;
       // Re-enabling starts from the current baseline, without replaying disabled-period events.
       db.prepare("UPDATE guild_config SET notifications_enabled=?, baseline_reset=?, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE guild_id=?")
@@ -76,6 +77,7 @@ function openDatabase(path, { legacyPath, env = {}, now = Date.now } = {}) {
   };
   try {
     attachForecast(store, { env, now });
+    attachTibo(store, { now });
     db.transaction(() => {
       if (state('legacy_migrated')) return;
       let legacy = null;

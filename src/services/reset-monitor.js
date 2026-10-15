@@ -1,4 +1,4 @@
-const { deliverPending, deliverForecastPending } = require('./notification-service');
+const { deliverPending, deliverForecastPending, deliverTiboPending } = require('./notification-service');
 const log = require('../log');
 function createMonitor(client, store, api) {
   let active = null;
@@ -11,9 +11,12 @@ function createMonitor(client, store, api) {
       catch (error) { log('forecast_check_failed', { message: error.message }); }
     }
     catch (error) { log('reset_check_failed', { message: error.message }); }
+    try { store.observeTibo(await api.get('feed')); }
+    catch (error) { log('tibo_check_failed', { message: error.message }); }
     // Delivery retries are independent of API availability/rate limiting.
     await deliverPending(client, store);
     await deliverForecastPending(client, store);
+    await deliverTiboPending(client, store);
   }
   async function checkReset() {
     if (stopped || active) return;
