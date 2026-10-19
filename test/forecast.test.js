@@ -114,7 +114,12 @@ test('invalid, stale and future snapshots are ignored without damaging state; un
 function discord(failGuild, sent) {
   return { guilds: { fetch: async id => ({ id, members: { me: {} }, channels: { fetch: async () => ({
     id: C, guildId: id, type: ChannelType.GuildText, permissionsFor: () => ({ has: () => true }),
-    send: async payload => { assert.deepEqual(payload.allowedMentions, { parse: [] }); if (id === failGuild()) throw new Error('Missing permissions'); sent.push(id); }
+    send: async payload => {
+      const confirmed = payload.embeds[0].toJSON().title === 'Codex Global Reset Confirmed!';
+      assert.equal(payload.content, confirmed ? '@everyone' : undefined);
+      assert.deepEqual(payload.allowedMentions, { parse: confirmed ? ['everyone'] : [] });
+      if (id === failGuild()) throw new Error('Missing permissions'); sent.push(id);
+    }
   }) } }) } };
 }
 test('failed guild retries independently across restart and API failure without re-alerting successful guilds', async t => {

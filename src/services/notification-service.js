@@ -24,10 +24,10 @@ async function deliverPending(client, store) {
       const channel = await validateChannel(guild, await guild.channels.fetch(channel_id));
       const current = store.getGuild(guild_id);
       if (!current?.notifications_enabled || current.channel_id !== channel_id) continue;
-      await channel.send({ embeds: [new EmbedBuilder().setColor(0x57f287)
+      await channel.send({ content: '@everyone', embeds: [new EmbedBuilder().setColor(0x57f287)
         .setTitle('Codex Global Reset Confirmed!')
         .setDescription(`Reset Time: <t:${Math.floor(Date.parse(reset_at) / 1000)}:F>\nData: [codex-reset.com](https://codex-reset.com/)`)],
-      allowedMentions: { parse: [] } });
+      allowedMentions: { parse: ['everyone'] } });
       store.delivered(guild_id, reset_at, channel_id);
       log('notification_sent', { guild_id, reset_at });
     } catch (error) { log('notification_failed', { guild_id, code: error.code, message: error.message }); }

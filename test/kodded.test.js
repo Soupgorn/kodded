@@ -66,7 +66,12 @@ test('partial failures retry independently, even during API failure; multiple ev
   let fail = true, apiFail = false, reset = R2; const sends = [];
   const client = { guilds: { fetch: async id => ({ id, members: { me: {} }, channels: { fetch: async () => ({
     id: C, guildId: id, type: ChannelType.GuildText, permissionsFor: () => ({ has: () => true }),
-    send: async payload => { assert.deepEqual(payload.allowedMentions, { parse: [] }); if (id === B && fail) throw new Error('Forbidden'); sends.push(id); }
+    send: async payload => {
+      assert.equal(payload.content, '@everyone');
+      assert.deepEqual(payload.allowedMentions, { parse: ['everyone'] });
+      assert.equal(payload.embeds[0].toJSON().title, 'Codex Global Reset Confirmed!');
+      if (id === B && fail) throw new Error('Forbidden'); sends.push(id);
+    }
   }) } }) } };
   const monitor = createMonitor(client, store, { get: async () => { if (apiFail) throw new Error('timeout'); return { last_reset_at: reset }; } });
   await monitor(); await monitor(); assert.deepEqual(sends, [A]);

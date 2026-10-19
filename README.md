@@ -9,7 +9,7 @@ Kodded monitors global Codex goodwill resets using [codex-reset.com](https://cod
 - Optional forecast probability increase alerts and Tibo post notifications, each independent of confirmed reset notifications.
 - Shared API cache (90 seconds), 15-second request timeout, and shared `Retry-After` handling with a two-minute minimum backoff.
 - SQLite persistence with transactions, WAL mode, and a durable per-server delivery queue.
-- Embed notifications without mentions; permission/channel failures are isolated and retried.
+- Confirmed reset notifications tag `@everyone`; permission/channel failures are isolated and retried.
 
 `Codex API → shared monitor → SQLite delivery queue → configured Discord channels`
 
@@ -20,7 +20,7 @@ The [API guide](https://codex-reset.com/developers) and [public route documentat
 ## Install in Discord
 
 1. Create or select the existing application in the Discord Developer Portal. Enable **Guild Install** and keep the bot token private. No Message Content intent is needed.
-2. Generate an OAuth2 installation link with `bot` and `applications.commands` scopes. Select **View Channels**, **Send Messages**, and **Embed Links**. Administrator permission for the bot is unnecessary.
+2. Generate an OAuth2 installation link with `bot` and `applications.commands` scopes. Select **View Channels**, **Send Messages**, **Embed Links**, and **Mention @everyone, @here, and All Roles**. Existing installations also need the mention permission in their configured notification channel for reset pings to notify everyone. Administrator permission for the bot is unnecessary.
 3. Open the link and select a server where you can manage/install apps. To add another server, reuse the same application installation link; do not run another bot instance or create another token.
 4. A server administrator or member with **Manage Server** runs `/kodded setup channel:#codex-reset` in each new server.
 5. Check `/kodded config`. Setup enables notifications for a new server; changing an existing channel preserves its enabled/disabled state. The current reset becomes a baseline, not a new alert.
@@ -49,7 +49,7 @@ All responses, including errors, are ephemeral. Permission checks apply to chang
 
 ## Automatic forecast alerts
 
-Confirmed reset alerts report an advance in `last_reset_at` and use green embeds. Forecast alerts report estimated probability movements using amber embeds and always say **“This is a forecast, not a confirmed reset.”** They do not create confirmed reset events or acknowledge reset deliveries.
+Confirmed reset alerts report an advance in `last_reset_at`, use green embeds, and include an `@everyone` mention with `allowedMentions: { parse: ['everyone'] }`. Forecast alerts report estimated probability movements using amber embeds and always say **“This is a forecast, not a confirmed reset.”** They do not create confirmed reset events or acknowledge reset deliveries.
 
 Forecast alerts default to **disabled**, including for existing guilds during upgrade. After `/kodded setup`, a manager can opt in with `/kodded forecast-alert enable`; use `/kodded forecast-alert config` to check settings. They use the same channel, but `/kodded notify` and `/kodded forecast-alert` control independent preferences. All responses stay ephemeral. Enabling requires a valid channel and a fresh API snapshot and silently establishes the current probability baseline; repeating enable does not reset baselines or cooldowns.
 
@@ -78,7 +78,7 @@ The existing monitor fetches `/api/feed` once per cycle through the shared API c
 
 The first valid feed initializes a silent global baseline. Each first enable/re-enable refreshes the shared feed and records the current observation sequence silently for that guild. Posts already in that snapshot are not replayed to the enabling guild; already enabled guilds can still receive newly observed entries. Repeating enable leaves existing state/pending work intact. Unseen valid posts, including replies and delayed ingestion with older publication times, enqueue once per enabled guild. Every available unseen post within the retained horizon is processed in publication order, with post ID as a tie breaker. A failing guild pauses its later posts for that cycle while other guilds continue. Success is recorded only after Discord accepts the message; queued failures survive restart. Edits or reordering of a previously observed post ID do not trigger another alert.
 
-White embeds use **New Tibo Post**, a safely truncated and escaped content field, publication timestamp, validated original link, visible `Data: https://codex-reset.com/` attribution, and the footer `Kodded • Tibo Post Monitor`. Mentions, Markdown links/formatting and invisible control characters are neutralized; all sends use `allowedMentions: { parse: [] }`.
+White embeds use **New Tibo Post**, a safely truncated and escaped content field, publication timestamp, validated original link, visible `Data: https://codex-reset.com/` attribution, and the footer `Kodded • Tibo Post Monitor`. Mentions, Markdown links/formatting and invisible control characters are neutralized; Tibo, forecast, startup, and command messages use `allowedMentions: { parse: [] }`.
 
 Tibo history retains up to **1,000 non-pending posts within 30 days**, plus every post still needed by a pending delivery. Pruning advances durable publication-time and post-ID retirement fences; historical entries below either fence are permanently ignored even if they reappear, their metadata changes, or the container restarts. This preserves deduplication after deleting old IDs. Newly ingested historical posts below the retention fences are deliberately excluded. Per-guild successful delivery IDs are retained with recent posts, and each guild keeps its last successful post ID/time. Pending work is never pruned; prolonged failures can still grow the backlog until repaired or explicitly disabled. Retention runs on valid observations, acknowledgements, and preference changes. It does not prune the separate confirmed-reset tables.
 
