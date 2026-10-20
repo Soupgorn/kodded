@@ -13,6 +13,28 @@ async function validateChannel(guild, channel) {
   }
   return channel;
 }
+async function resetRoleMention(guild, channel) {
+  const skip = (reason, fields = {}) => {
+    log('reset_role_mention_skipped', { level: 'warn', guild_id: guild.id, channel_id: channel.id, reason, ...fields });
+    return { allowedMentions: { parse: [] } };
+  };
+  try {
+    // Fetch the complete current guild role list so duplicate names cannot be hidden by cache misses.
+    const roles = [...(await guild.roles.fetch()).values()].filter(role => role.name === 'Codex-noti');
+    if (roles.length !== 1) return skip(roles.length ? 'duplicate_role_name' : 'missing_role');
+    const role = roles[0];
+    if (!validId(role.id) || role.id === guild.id || role.guild.id !== guild.id) return skip('invalid_role');
+    if (!role.mentionable) {
+      const member = guild.members.me ?? await guild.members.fetchMe();
+      if (!channel.permissionsFor(member)?.has(PermissionFlagsBits.MentionEveryone)) {
+        return skip('role_not_mentionable', { role_id: role.id });
+      }
+    }
+    return { content: `<@&${role.id}>`, allowedMentions: { parse: [], roles: [role.id], users: [], repliedUser: false } };
+  } catch (error) {
+    return skip('role_lookup_failed', { code: error.code });
+  }
+}
 async function deliverPending(client, store) {
   for (const delivery of store.pending()) {
     const { guild_id, channel_id, reset_at } = delivery;
@@ -22,12 +44,12 @@ async function deliverPending(client, store) {
     try {
       const guild = await client.guilds.fetch(guild_id);
       const channel = await validateChannel(guild, await guild.channels.fetch(channel_id));
+      const mention = await resetRoleMention(guild, channel);
       const current = store.getGuild(guild_id);
       if (!current?.notifications_enabled || current.channel_id !== channel_id) continue;
-      await channel.send({ content: '@everyone', embeds: [new EmbedBuilder().setColor(0x57f287)
+      await channel.send({ ...mention, embeds: [new EmbedBuilder().setColor(0x57f287)
         .setTitle('Codex Global Reset Confirmed!')
-        .setDescription(`Reset Time: <t:${Math.floor(Date.parse(reset_at) / 1000)}:F>\nData: [codex-reset.com](https://codex-reset.com/)`)],
-      allowedMentions: { parse: ['everyone'] } });
+        .setDescription(`Reset Time: <t:${Math.floor(Date.parse(reset_at) / 1000)}:F>\nData: [codex-reset.com](https://codex-reset.com/)`)] });
       store.delivered(guild_id, reset_at, channel_id);
       log('notification_sent', { guild_id, reset_at });
     } catch (error) { log('notification_failed', { guild_id, code: error.code, message: error.message }); }
@@ -62,12 +84,8 @@ async function deliverForecastPending(client, store) {
 function tiboEmbed(post) {
   return new EmbedBuilder().setColor(0xffffff).setTitle('New Tibo Post')
     .addFields(
-      { name: 'Author', value: 'Tibo (@thsottiaux)' },
       { name: 'Post content', value: post.text },
-      { name: 'Published', value: `<t:${Math.floor(Date.parse(post.published_at) / 1000)}:F>` },
-      { name: 'Original post', value: `[View on X](${post.url})` },
-      { name: 'Data', value: 'https://codex-reset.com/' })
-    .setFooter({ text: 'Kodded • Tibo Post Monitor' });
+      { name: 'Original post', value: `[View on X](${post.url})` });
 }
 async function deliverTiboPending(client, store) {
   const failedGuilds = new Set();
