@@ -115,9 +115,8 @@ function discord(failGuild, sent) {
   return { guilds: { fetch: async id => ({ id, members: { me: {} }, channels: { fetch: async () => ({
     id: C, guildId: id, type: ChannelType.GuildText, permissionsFor: () => ({ has: () => true }),
     send: async payload => {
-      const confirmed = payload.embeds[0].toJSON().title === 'Codex Global Reset Confirmed!';
-      assert.equal(payload.content, confirmed ? '@everyone' : undefined);
-      assert.deepEqual(payload.allowedMentions, { parse: confirmed ? ['everyone'] : [] });
+      assert.equal(payload.content, undefined);
+      assert.deepEqual(payload.allowedMentions, { parse: [] });
       if (id === failGuild()) throw new Error('Missing permissions'); sent.push(id);
     }
   }) } }) } };

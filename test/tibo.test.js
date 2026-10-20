@@ -109,8 +109,8 @@ test('post embed safely truncates content and neutralizes mentions, markdown, co
   assert.ok(!post.text.includes('\u202e')); assert.ok(post.text.startsWith('\\#'));
   assert.ok(!post.text.includes('[click]('));
   const embed = tiboEmbed(post).toJSON(); assert.equal(embed.title, 'New Tibo Post'); assert.equal(embed.color, 0xffffff);
-  assert.equal(embed.footer.text, 'Kodded • Tibo Post Monitor'); assert.equal(embed.fields[0].value, 'Tibo (@thsottiaux)');
-  assert.equal(embed.fields.at(-1).value, 'https://codex-reset.com/'); assert.match(embed.fields[2].value, /^<t:\d+:F>$/);
+  assert.equal(embed.footer, undefined); assert.equal(embed.description, undefined);
+  assert.deepEqual(embed.fields, [{ name: 'Post content', value: post.text }, { name: 'Original post', value: `[View on X](${post.url})` }]);
   assert.ok(safePostText('x'.repeat(2000)).length <= 1024);
 });
 test('retention cap preserves deduplication after pruning and keeps new late arrivals within the retention fence', t => {

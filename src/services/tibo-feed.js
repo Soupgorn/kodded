@@ -3,7 +3,9 @@ const MAX_FEED_AGE_MS = 10 * 60000;
 function safePostText(text) {
   const safe = text.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g, '')
     .replace(/@/g, '@\u200b').replace(/</g, '＜').replace(/>/g, '＞')
-    .replace(/[\\`*_{}\[\]()#+\-.!|~]/g, '\\$&').trim();
+    .replace(/[\\`*_\[\]()#|~]/g, '\\$&')
+    .replace(/^([ \t]*)([-+])(?=\s|-|$)/gm, '$1\\$2')
+    .replace(/^([ \t]*\d{1,9})\.(?=\s)/gm, '$1\\.');
   if (safe.length <= 1024) return safe;
   let result = '';
   for (const char of safe) { if (result.length + char.length > 1022) break; result += char; }
@@ -23,7 +25,7 @@ function parsePost(tweet, now) {
       !['x.com', 'www.x.com', 'twitter.com', 'www.twitter.com'].includes(url.hostname) ||
       !new RegExp(`^/thsottiaux/status/${tweet.id}/?$`, 'i').test(url.pathname)) return null;
   const text = safePostText(tweet.text);
-  if (!text) return null;
+  if (!text.trim()) return null;
   return { post_id: tweet.id, published_at: new Date(time).toISOString(), text, url: url.origin + url.pathname };
 }
 function parseFeed(data, now = Date.now()) {

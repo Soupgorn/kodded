@@ -67,8 +67,8 @@ test('partial failures retry independently, even during API failure; multiple ev
   const client = { guilds: { fetch: async id => ({ id, members: { me: {} }, channels: { fetch: async () => ({
     id: C, guildId: id, type: ChannelType.GuildText, permissionsFor: () => ({ has: () => true }),
     send: async payload => {
-      assert.equal(payload.content, '@everyone');
-      assert.deepEqual(payload.allowedMentions, { parse: ['everyone'] });
+      assert.equal(payload.content, undefined);
+      assert.deepEqual(payload.allowedMentions, { parse: [] });
       assert.equal(payload.embeds[0].toJSON().title, 'Codex Global Reset Confirmed!');
       if (id === B && fail) throw new Error('Forbidden'); sends.push(id);
     }
