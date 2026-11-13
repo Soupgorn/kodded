@@ -20,7 +20,7 @@ async function resetRoleMention(guild, channel) {
   };
   try {
     // Fetch the complete current guild role list so duplicate names cannot be hidden by cache misses.
-    const roles = [...(await guild.roles.fetch()).values()].filter(role => role.name === 'Codex-noti');
+    const roles = [...(await guild.roles.fetch()).values()].filter(role => role.name === '/alert/codex-nofi');
     if (roles.length !== 1) return skip(roles.length ? 'duplicate_role_name' : 'missing_role');
     const role = roles[0];
     if (!validId(role.id) || role.id === guild.id || role.guild.id !== guild.id) return skip('invalid_role');
@@ -74,8 +74,9 @@ async function deliverForecastPending(client, store) {
     try {
       const guild = await client.guilds.fetch(delivery.guild_id);
       const channel = await validateChannel(guild, await guild.channels.fetch(delivery.channel_id));
+      const mention = await resetRoleMention(guild, channel);
       if (!store.forecastDeliveryCurrent(delivery)) continue;
-      await channel.send({ embeds: [forecastEmbed(delivery)], allowedMentions: { parse: [] } });
+      await channel.send({ ...mention, embeds: [forecastEmbed(delivery)] });
       store.deliveredForecast(delivery);
       log('forecast_notification_sent', { guild_id: delivery.guild_id, snapshot_at: delivery.snapshot_at });
     } catch (error) { log('forecast_notification_failed', { guild_id: delivery.guild_id, code: error.code, message: error.message }); }
